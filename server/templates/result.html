@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>结果｜引体向上识别</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <div class="title">分析结果</div>
+          <div class="muted">分析编号：<span class="mono">{{ analysis_id }}</span></div>
+        </div>
+        <div class="actions">
+          <a class="link" href="{{ url_for('upload') }}">继续上传</a>
+          <a class="link" href="{{ url_for('history') }}">历史记录</a>
+          <form method="post" action="{{ url_for('logout') }}">
+            <button class="ghost" type="submit">退出</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>状态</h2>
+        <div id="statusText" class="muted">加载中...</div>
+        <div class="progress">
+          <div id="progressBar" class="bar"></div>
+        </div>
+        <div id="errorBox" class="alert" style="display: none"></div>
+      </div>
+
+      <div id="resultCard" class="card" style="display: none">
+        <h2>结果</h2>
+        <div class="grid">
+          <div class="metric">
+            <div class="label">总分（平均）</div>
+            <div id="scoreTotal" class="value">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">检测动作数</div>
+            <div id="actionCount" class="value">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">识别视角</div>
+            <div id="viewAngle" class="value small">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">下巴过杠</div>
+            <div id="chinOverBar" class="value">-</div>
+          </div>
+          <div class="metric">
+            <div class="label">手臂伸直</div>
+            <div id="armStraight" class="value">-</div>
+          </div>
+          <div class="metric">
+            <div class="label" id="stdVersionLabel">标准版本</div>
+            <div id="stdVersion" class="value small">-</div>
+          </div>
+        </div>
+
+        <h3>视频回放</h3>
+        <div class="videos">
+          <figure>
+            <video id="videoStandard" controls playsinline preload="auto" crossorigin="anonymous">
+              您的浏览器不支持视频播放
+            </video>
+            <figcaption id="videoCaptionStandard">标准视频</figcaption>
+          </figure>
+          <figure>
+            <video id="videoStudent" controls playsinline preload="auto" crossorigin="anonymous">
+              您的浏览器不支持视频播放
+            </video>
+            <figcaption id="videoCaptionStudent">学员视频</figcaption>
+          </figure>
+        </div>
+        <div id="videoError" class="muted" style="margin-top: 8px; display: none;">提示：如果视频无法播放，可能是视频编码格式浏览器不支持</div>
+
+        <h3>📊 动作评估</h3>
+        <div id="evaluationPanel" class="evaluation-panel" style="display: none;">
+          <div class="eval-grid" id="evalGrid">
+            <!-- 四项指标将由 JS 动态生成 -->
+          </div>
+          <div id="evalReason" class="eval-reason" style="display: none;"></div>
+          <div id="evalDeductions" class="eval-deductions" style="display: none;"></div>
+        </div>
+        
+        <h3 id="actionScoresTitle" style="display: none;">📈 各动作评分明细</h3>
+        <div id="actionScoresList" class="action-scores-list" style="display: none;">
+          <!-- 多动作分数将由 JS 动态生成 -->
+        </div>
+
+        <h3>🔍 动作问题分析</h3>
+        <div id="actionIssuesList" class="action-issues"></div>
+
+        <h3>关键帧对照</h3>
+        <div id="keyframes" class="keyframes"></div>
+
+        <h3>建议</h3>
+        <ul id="tipsList" class="tips" style="padding-left: 0; margin: 0;"></ul>
+      </div>
+    </div>
+
+    <script>
+      const analysisId = "{{ analysis_id }}";
+      const statusText = document.getElementById("statusText");
+      const progressBar = document.getElementById("progressBar");
+      const errorBox = document.getElementById("errorBox");
+      const resultCard = document.getElementById("resultCard");
+
+      const scoreTotal = document.getElementById("scoreTotal");
+      const actionCountEl = document.getElementById("actionCount");
+      const viewAngle = document.getElementById("viewAngle");
+      const chinOverBar = document.getElementById("chinOverBar");
+      const armStraightEl = document.getElementById("armStraight");
+      const stdVersion = document.getElementById("stdVersion");
+      const stdVersionLabel = document.getElementById("stdVersionLabel");
+      const videoStandard = document.getElementById("videoStandard");
+      const videoStudent = document.getElementById("videoStudent");
+      const videoCaptionStandard = document.getElementById("videoCaptionStandard");
+      const videoCaptionStudent = document.getElementById("videoCaptionStudent");
+      const keyframes = document.getElementById("keyframes");
+      const tipsList = document.getElementById("tipsList");
+
+      function setProgress(p) {
+        const x = Math.max(0, Math.min(100, p || 0));
+        progressBar.style.width = `${x}%`;
+      }
+
+      function showError(msg) {
+        errorBox.textContent = msg || "分析失败";
+        errorBox.style.display = "block";
+      }
+
+      async function poll() {
+        const res = await fetch(`/api/analyses/${analysisId}`, { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusText.textContent = "无法获取任务状态";
+          showError(data.error_message || "请稍后重试");
+          return;
+        }
+
+        setProgress(data.progress);
+        if (data.status === "queued") {
+          statusText.textContent = "已提交，等待分析...";
+          setTimeout(poll, 1200);
+          return;
+        }
+        if (data.status === "running") {
+          statusText.textContent = "分析中，请稍候...";
+          setTimeout(poll, 1200);
+          return;
+        }
+        if (data.status === "failed") {
+          statusText.textContent = "分析失败";
+          showError(data.error_message || "请按拍摄规范重新录制后上传");
+          return;
+        }
+        if (data.status === "succeeded") {
+          try {
+          console.log("API data:", data);
+          statusText.textContent = "分析完成";
+          resultCard.style.display = "block";
+          scoreTotal.textContent = data.score_total ?? "-";
+          
+          // 对比模式判断
+          const isHistoryMode = data.compare_mode === "history";
+          const compareLabelText = data.compare_label || (isHistoryMode ? "历史动作" : "标准动作");
+          const currentLabelText = isHistoryMode ? "当前动作" : "学员动作";
+          
+          // 视角显示
+          const viewLabel = data.view_label || (data.view_angle === "front" ? "正面" : (data.view_angle === "side" ? "侧面" : (data.view_angle === "angle" ? "斜侧面" : "-")));
+          if (viewAngle) {
+            viewAngle.textContent = viewLabel;
+            if (data.view_angle === "side") {
+              viewAngle.style.color = "#6ec6ff";
+            } else if (data.view_angle === "angle") {
+              viewAngle.style.color = "#ffe066";
+            } else {
+              viewAngle.style.color = "#6effc6";
+            }
+          }
+          // 下巴过杠显示
+          if (chinOverBar) {
+            if (data.evaluation?.chin_over_bar === true) {
+              chinOverBar.textContent = "✓ 通过";
+              chinOverBar.style.color = "#6effc6";
+            } else if (data.evaluation?.chin_over_bar === false) {
+              chinOverBar.textContent = "✗ 未过杠";
+              chinOverBar.style.color = "#ff6a7a";
+            } else {
+              chinOverBar.textContent = "-";
+            }
+          }
+          // 动作数量
+          const actionCount = data.evaluation?.action_count || 1;
+          if (actionCountEl) {
+            actionCountEl.textContent = actionCount + " 个";
+            actionCountEl.style.color = actionCount > 1 ? "#6ec6ff" : "#9aa6d1";
+          }
+          
+          // 手臂伸直显示
+          if (armStraightEl) {
+            if (data.evaluation?.arm_straight === true) {
+              armStraightEl.textContent = "✓ 伸直";
+              armStraightEl.style.color = "#6effc6";
+            } else if (data.evaluation?.arm_straight === false) {
+              armStraightEl.textContent = "✗ 弯曲";
+              armStraightEl.style.color = "#ff6a7a";
+            } else {
+              armStraightEl.textContent = "-";
+            }
+          }
+          
+          // 标准版本/历史分析显示
+          if (isHistoryMode) {
+            stdVersionLabel.textContent = "对比分析";
+            stdVersion.textContent = data.standard_version?.replace("history_", "") ?? "-";
+          } else {
+            stdVersionLabel.textContent = "标准版本";
+            stdVersion.textContent = data.standard_version ?? "-";
+          }
+          
+          // 视频标签
+          videoCaptionStandard.textContent = compareLabelText + "视频";
+          videoCaptionStudent.textContent = currentLabelText + "视频";
+          // 设置视频源并添加错误处理
+          if (data.videos?.standard) {
+            videoStandard.src = data.videos.standard;
+            videoStandard.onerror = () => {
+              document.getElementById("videoError").style.display = "block";
+              console.error("标准视频加载失败:", data.videos.standard);
+            };
+          }
+          if (data.videos?.student) {
+            videoStudent.src = data.videos.student;
+            videoStudent.onerror = () => {
+              document.getElementById("videoError").style.display = "block";
+              console.error("学员视频加载失败:", data.videos.student);
+            };
+          }
+
+          // ====== 填充动作评估面板 ======
+          const evaluationPanel = document.getElementById("evaluationPanel");
+          const evalGrid = document.getElementById("evalGrid");
+          const evalData = data.evaluation || {};
+          
+          // 五项关键指标（新增摆浪蹬腿）
+          const evalItems = [
+            { key: "chin_over_bar", label: "下巴过杠", detail: "chin_detail" },
+            { key: "arm_straight", label: "手臂伸直", detail: "arm_detail" },
+            { key: "legs_together", label: "腿部并拢", detail: "legs_detail" },
+            { key: "body_stable", label: "身体稳定", detail: "body_detail" },
+            { key: "has_kipping", label: "摆浪蹬腿", detail: "kipping_detail", invert: true }
+          ];
+          
+          if (evalData && Object.keys(evalData).length > 0) {
+            evaluationPanel.style.display = "block";
+            evalGrid.innerHTML = "";
+            
+            evalItems.forEach(item => {
+              // 摆浪蹬腿是反向逻辑：has_kipping=true 表示有问题（不通过）
+              const passed = item.invert ? !evalData[item.key] : evalData[item.key];
+              const detail = evalData[item.detail] || "";
+              const icon = passed ? "✓" : "✗";
+              const color = passed ? "#6effc6" : "#ff6a7a";
+              const bgColor = passed ? "rgba(110, 255, 198, 0.1)" : "rgba(255, 106, 122, 0.1)";
+              
+              const itemEl = document.createElement("div");
+              itemEl.className = "eval-item";
+              itemEl.style.cssText = `background: ${bgColor}; border-radius: 10px; padding: 16px; text-align: center;`;
+              itemEl.innerHTML = `
+                <div style="font-size: 28px; color: ${color}; margin-bottom: 8px;">${icon}</div>
+                <div style="color: #c5cde0; font-weight: 500; margin-bottom: 4px;">${item.label}</div>
+                <div style="font-size: 12px; color: #9aa6d1;">${detail}</div>
+              `;
+              evalGrid.appendChild(itemEl);
+            });
+            
+            // 评分原因
+            if (evalData.score_reason) {
+              const evalReason = document.getElementById("evalReason");
+              evalReason.textContent = "📝 " + evalData.score_reason;
+              evalReason.style.display = "block";
+            }
+            
+            // 需改进的地方
+            if (evalData.deductions && evalData.deductions.length > 0) {
+              const evalDeductions = document.getElementById("evalDeductions");
+              evalDeductions.innerHTML = "<strong>⚠️ 需改进：</strong>" + evalData.deductions.join("；");
+              evalDeductions.style.display = "block";
+            }
+          }
+          
+          // ====== 显示各动作评分明细 ======
+          const actionScoresList = document.getElementById("actionScoresList");
+          const actionScoresTitle = document.getElementById("actionScoresTitle");
+          const actionScores = evalData.action_scores || [];
+          
+          // 显示每个动作的评分（无论有多少个动作）
+          if (actionScores.length > 0) {
+            actionScoresTitle.style.display = "block";
+            actionScoresList.style.display = "block";
+            actionScoresList.innerHTML = "";
+            
+            actionScores.forEach((action, idx) => {
+              const card = document.createElement("div");
+              card.className = "action-score-card";
+              const scoreColor = action.total >= 90 ? "#6effc6" : action.total >= 80 ? "#6ec6ff" : action.total >= 70 ? "#ffe066" : action.total >= 60 ? "#ffa94d" : "#ff6a7a";
+              
+              card.style.cssText = `
+                background: rgba(255,255,255,0.04);
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 12px;
+                padding: 16px;
+                margin-bottom: 12px;
+              `;
+              
+              // 五项指标状态（新增摆浪蹬腿）
+              const details = action.details || {};
+              let statusHtml = "";
+              const statusItems = [
+                { key: "chin", label: "下巴" },
+                { key: "arm", label: "手臂" },
+                { key: "legs", label: "腿部" },
+                { key: "swing", label: "稳定" },
+                { key: "kipping", label: "摆浪" }
+              ];
+              statusItems.forEach(si => {
+                const d = details[si.key];
+                if (d) {
+                  const icon = d.passed ? "✓" : "✗";
+                  const color = d.passed ? "#6effc6" : "#ff6a7a";
+                  statusHtml += `<span style="color: ${color}; margin-right: 12px;">${icon} ${si.label}</span>`;
+                }
+              });
+              
+              // 客观数据
+              const kippingStr = action.is_kipping ? `<span style="color: #ff6a7a; margin-left: 4px;">⚡摆浪</span>` : '';
+              const dataHtml = `
+                <span style="margin-right: 10px;">下巴${action.chin_gap < 0 ? '↑' : '↓'}${Math.abs(action.chin_gap)}px</span>
+                <span style="margin-right: 10px;">肘角${action.bottom_elbow}°</span>
+                <span style="margin-right: 10px;">腿距${action.leg_dist}px</span>
+                <span style="margin-right: 10px;">晃动${action.swing}°</span>
+                ${kippingStr}
+              `;
+              
+              card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="color: #c5cde0; font-weight: 500;">第 ${action.action_num} 个动作</span>
+                  <span style="color: ${scoreColor}; font-size: 20px; font-weight: 700;">${action.total} 分</span>
+                </div>
+                <div style="font-size: 13px; margin-bottom: 6px;">${statusHtml}</div>
+                <div style="font-size: 11px; color: #7a8599; margin-bottom: 4px;">📊 ${dataHtml}</div>
+                ${action.score_detail ? `<div style="font-size: 11px; color: #6ec6ff;">${action.score_detail}</div>` : ""}
+              `;
+              actionScoresList.appendChild(card);
+            });
+          }
+
+          // ====== 动作问题分析（替代原来的差异关节对比） ======
+          const actionIssuesList = document.getElementById("actionIssuesList");
+          actionIssuesList.innerHTML = "";
+          
+          (data.action_issues || []).forEach((issue) => {
+            const item = document.createElement("div");
+            item.className = "issue-item";
+            
+            // 状态颜色和图标
+            let statusColor = "#9aa6d1";
+            let statusBg = "rgba(154, 166, 209, 0.1)";
+            let statusBorder = "rgba(154, 166, 209, 0.2)";
+            if (issue.status === "good") {
+              statusColor = "#6effc6";
+              statusBg = "rgba(110, 255, 198, 0.1)";
+              statusBorder = "rgba(110, 255, 198, 0.3)";
+            } else if (issue.status === "warning") {
+              statusColor = "#ffe066";
+              statusBg = "rgba(255, 224, 102, 0.1)";
+              statusBorder = "rgba(255, 224, 102, 0.3)";
+            } else if (issue.status === "bad") {
+              statusColor = "#ff6a7a";
+              statusBg = "rgba(255, 106, 122, 0.1)";
+              statusBorder = "rgba(255, 106, 122, 0.3)";
+            }
+            
+            item.style.cssText = `
+              padding: 14px 16px;
+              background: ${statusBg};
+              border: 1px solid ${statusBorder};
+              border-radius: 10px;
+              margin-bottom: 10px;
+            `;
+            
+            item.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <span style="font-size: 18px;">${issue.icon || "●"}</span>
+                <strong style="color: #fff;">${issue.issue}</strong>
+                <span class="muted" style="font-size: 12px;">｜${issue.phase}</span>
+              </div>
+              <div style="color: ${statusColor}; font-size: 14px; margin-left: 28px;">
+                ${issue.detail}
+              </div>
+            `;
+            
+            actionIssuesList.appendChild(item);
+          });
+
+          keyframes.innerHTML = "";
+          (data.keyframes || []).forEach((kf) => {
+            const wrap = document.createElement("div");
+            wrap.className = "keyframe";
+
+            const head = document.createElement("div");
+            head.className = "keyframe-head";
+            const sec = kf.time_ms != null ? `${(kf.time_ms / 1000).toFixed(1)}s` : "";
+            const joint = kf.joint_label ? `｜高亮：${kf.joint_label}` : "";
+            head.textContent = `${kf.label || kf.key || "关键帧"}${sec ? `（${sec}）` : ""}${joint}`;
+            wrap.appendChild(head);
+
+            const grid = document.createElement("div");
+            grid.className = "images";
+
+            const f1 = document.createElement("figure");
+            const i1 = document.createElement("img");
+            i1.alt = compareLabelText + "关键帧";
+            i1.src = kf.images?.standard;
+            const c1 = document.createElement("figcaption");
+            c1.textContent = isHistoryMode ? "历史" : "标准";
+            f1.appendChild(i1);
+            f1.appendChild(c1);
+
+            const f2 = document.createElement("figure");
+            const i2 = document.createElement("img");
+            i2.alt = currentLabelText + "关键帧";
+            i2.src = kf.images?.student;
+            const c2 = document.createElement("figcaption");
+            c2.textContent = isHistoryMode ? "当前" : "学员";
+            f2.appendChild(i2);
+            f2.appendChild(c2);
+
+            grid.appendChild(f1);
+            grid.appendChild(f2);
+
+            wrap.appendChild(grid);
+            keyframes.appendChild(wrap);
+          });
+
+          tipsList.innerHTML = "";
+          (data.tips || []).forEach((t) => {
+            const li = document.createElement("li");
+            li.style.cssText = "margin-bottom: 20px; line-height: 1.9; list-style: none; background: rgba(30,40,65,0.5); border-radius: 10px; padding: 16px 18px;";
+            
+            let html = t;
+            
+            // 1. 提取第一个【标题】作为大标题（高亮、加粗）
+            html = html.replace(/^【([^】]+)】/, '<div style="color: #7ecfff; font-weight: 600; font-size: 15px; margin-bottom: 8px;">【$1】</div><div style="color: #c5cde0; font-size: 14px;">');
+            
+            // 2. 内文中的【子标题】加粗高亮（如 1.【首要】）
+            html = html.replace(/【([^】]+)】/g, '<strong style="color: #eab46e;">【$1】</strong>');
+            
+            // 3. 把编号序号（如 1.xxx 2.xxx）变成换行分点
+            html = html.replace(/(\d+)\./g, function(match, num, offset) {
+              // 第一个编号前不加 <br>（紧跟标题后面的）
+              if (offset < 5) return '<span style="color: #7ecfff; font-weight: 500;">' + num + '.</span> ';
+              return '<br><span style="color: #7ecfff; font-weight: 500; margin-left: 4px;">' + num + '.</span> ';
+            });
+            
+            // 4. 闭合 div
+            html += '</div>';
+            
+            // 5. 清理：如果标题 div 后紧跟 <br>，去掉那个 <br>
+            html = html.replace(/(<\/div>\s*<div[^>]*>)\s*<br>/g, '$1');
+            
+            li.innerHTML = html;
+            tipsList.appendChild(li);
+          });
+          } catch (e) {
+            console.error("渲染结果出错:", e);
+          }
+          return;
+        }
+      }
+
+      poll();
+    </script>
+  </body>
+</html>

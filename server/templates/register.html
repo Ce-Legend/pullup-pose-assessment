@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>学生注册｜引体向上识别</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>AI 引体向上动作分析系统</h1>
+      <p class="muted">学生账号注册</p>
+
+      <div class="card">
+        <h2>注册新账号</h2>
+        {% if error %}
+        <div class="alert">{{ error }}</div>
+        {% endif %}
+        {% if success %}
+        <div class="alert" style="background: rgba(110, 255, 198, 0.15); border-color: rgba(110, 255, 198, 0.3); color: #6effc6;">
+          {{ success }}
+        </div>
+        {% endif %}
+        <form method="post">
+          <label>
+            账号（用于登录）
+            <input name="username" autocomplete="username" required minlength="3" maxlength="20" 
+                   pattern="[a-zA-Z0-9_]+" title="只能包含字母、数字和下划线" />
+          </label>
+          <label>
+            姓名（显示名称）
+            <input name="display_name" autocomplete="name" required minlength="2" maxlength="20" />
+          </label>
+          <label>
+            密码
+            <input name="password" type="password" autocomplete="new-password" required minlength="6" />
+          </label>
+          <label>
+            确认密码
+            <input name="password_confirm" type="password" autocomplete="new-password" required minlength="6" />
+          </label>
+          <button type="submit">注册</button>
+        </form>
+        <p class="muted" style="margin-top: 16px;">
+          已有账号？<a href="{{ url_for('login') }}" class="link">返回登录</a>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

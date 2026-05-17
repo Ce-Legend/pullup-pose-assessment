@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>历史｜引体向上识别</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <div class="title">历史记录</div>
+          <div class="muted">用户：{{ user.display_name }}（{{ user.role }}）</div>
+        </div>
+        <div class="actions">
+          <a class="link" href="{{ url_for('upload') }}">返回上传</a>
+          <form method="post" action="{{ url_for('logout') }}">
+            <button class="ghost" type="submit">退出</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        {% if items %}
+        <table class="table">
+          <thead>
+            <tr>
+              {% if user.role == "teacher" %}
+              <th>学员</th>
+              {% endif %}
+              <th>时间</th>
+              <th>视角</th>
+              <th>对比</th>
+              <th>状态</th>
+              <th>总分</th>
+              <th>Top1差异</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+            <tr>
+              {% if user.role == "teacher" %}
+              <td>{{ it.display_name }}</td>
+              {% endif %}
+              <td class="mono" style="font-size: 13px;">{{ it.created_at[:16].replace('T', ' ') if it.created_at else '-' }}</td>
+              <td>
+                {% if it.view == 'front' %}
+                <span style="color: #6effc6;">正面</span>
+                {% elif it.view == 'side' %}
+                <span style="color: #6ec6ff;">侧面</span>
+                {% elif it.view == 'angle' %}
+                <span style="color: #ffe066;">斜侧</span>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td>
+                {% if it.compare_mode == 'history' %}
+                <span style="color: #ffe066;">📊历史</span>
+                {% else %}
+                <span style="color: #6effc6;">📏标准</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if it.status == 'succeeded' %}
+                <span style="color: #6effc6;">✓完成</span>
+                {% elif it.status == 'failed' %}
+                <span style="color: #ff6a7a;">✗失败</span>
+                {% elif it.status == 'running' %}
+                <span style="color: #ffe066;">处理中</span>
+                {% else %}
+                <span style="color: #9aa6d1;">等待</span>
+                {% endif %}
+              </td>
+              <td style="font-weight: 600;">{{ it.score_total if it.score_total else "-" }}</td>
+              <td>{{ it.diff_joint or "-" }}</td>
+              <td><a class="link" href="{{ url_for('result_page', analysis_id=it.id) }}">查看</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div style="text-align: center; padding: 60px 20px; color: #9aa6d1;">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <div style="font-size: 16px; margin-bottom: 8px;">暂无分析记录</div>
+          <div style="font-size: 14px; opacity: 0.7;">上传视频后，分析记录将显示在这里</div>
+          <a href="{{ url_for('upload') }}" class="link" style="display: inline-block; margin-top: 20px;">
+            去上传视频 →
+          </a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>
+

@@ -1,0 +1,5 @@
+Flask>=3.0,<4
+flask-cors>=6.0,<7
+numpy>=2.0,<3
+Pillow>=11.0,<12
+scipy>=1.12,<2
